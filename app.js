@@ -471,8 +471,14 @@ function updateUI() {
     menuListContainer.appendChild(chip);
   });
   
-  // Lucide 아이콘 새로 그리기
-  lucide.createIcons();
+  // Lucide 아이콘 새로 그리기 (로딩 실패 대비 안전 장치 추가)
+  if (typeof lucide !== 'undefined' && lucide.createIcons) {
+    try {
+      lucide.createIcons();
+    } catch (e) {
+      console.warn('Lucide icons failed to render:', e);
+    }
+  }
   
   // 3. 룰렛 캔버스 갱신
   drawRoulette();

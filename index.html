@@ -106,8 +106,14 @@
 
   <script src="app.js"></script>
   <script>
-    // Lucide 아이콘 렌더링
-    lucide.createIcons();
+    // Lucide 아이콘 렌더링 안전 장치
+    if (typeof lucide !== 'undefined' && lucide.createIcons) {
+      try {
+        lucide.createIcons();
+      } catch (e) {
+        console.warn('Lucide initial load failed:', e);
+      }
+    }
   </script>
 </body>
 </html>
