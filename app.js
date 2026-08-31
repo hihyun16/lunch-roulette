@@ -322,36 +322,40 @@ function drawRoulette() {
 }
 
 // 물리 기반 스핀 애니메이션 루프
-let lastTickAngle = 0;
+let lastTickAngle = -1;
 function spinLoop() {
   if (!isSpinning) return;
   
-  currentRotation += spinVelocity;
+  // 회전각 업데이트 및 2*PI 범위로 정규화하여 정밀도 오차 방지
+  currentRotation = (currentRotation + spinVelocity) % (2 * Math.PI);
   spinVelocity *= spinDeceleration; // 마찰력에 의한 감속
   
   // 한 칸 넘어갈 때 째깍(Tick)거리는 사운드 효과 계산
   const numSlices = menus.length;
   const sliceAngle = (2 * Math.PI) / numSlices;
   
-  // 현재 각도에서 12시 바늘 포인터(-Math.PI / 2) 기준 몇 번째 영역인지 계산
-  const pointerAngle = -Math.PI / 2;
-  const relativeAngle = (pointerAngle - currentRotation) % (2 * Math.PI);
-  const normalizedAngle = relativeAngle < 0 ? relativeAngle + (2 * Math.PI) : relativeAngle;
-  const currentTickSliceIndex = Math.floor(normalizedAngle / sliceAngle);
+  // 12시 바늘(1.5 * Math.PI)이 지목하는 룰렛 상의 상대 각도 계산
+  let targetAngle = (1.5 * Math.PI - currentRotation) % (2 * Math.PI);
+  if (targetAngle < 0) {
+    targetAngle += 2 * Math.PI;
+  }
+  const currentTickSliceIndex = Math.floor(targetAngle / sliceAngle) % numSlices;
   
   if (currentTickSliceIndex !== lastTickAngle) {
-    playTickSound();
+    if (lastTickAngle !== -1) {
+      playTickSound();
+    }
     lastTickAngle = currentTickSliceIndex;
   }
   
   drawRoulette();
   
   // 속도가 일정 임계값 이하가 되면 정지
-  if (spinVelocity < 0.002) {
+  if (spinVelocity < 0.0015) {
     isSpinning = false;
     spinVelocity = 0;
     
-    // 최종 결과 계산
+    // 최종 결과 계산 (현재 바늘이 지목하는 인덱스로 확정)
     showWinner(currentTickSliceIndex);
   } else {
     requestAnimationFrame(spinLoop);
