@@ -433,6 +433,11 @@ function loadMenus() {
   if (stored) {
     try {
       menus = JSON.parse(stored);
+      // 배열이 아니거나 비어있으면 기본 메뉴로 복구
+      if (!Array.isArray(menus) || menus.length === 0) {
+        menus = [...DEFAULT_MENUS];
+        saveMenus();
+      }
     } catch (e) {
       menus = [...DEFAULT_MENUS];
     }
@@ -568,5 +573,9 @@ function init() {
   loadMenus();
 }
 
-// DomContentLoaded 시 로드
-document.addEventListener('DOMContentLoaded', init);
+// readyState를 확인하여 안전하게 초기화 실행 (Vite 모듈 환경 호환성 확보)
+if (document.readyState === 'loading') {
+  document.addEventListener('DOMContentLoaded', init);
+} else {
+  init();
+}
