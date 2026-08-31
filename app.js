@@ -7,7 +7,6 @@ const DEFAULT_MENUS = [
   '부대찌개', '파스타'
 ];
 
-// 예쁜 룰렛 조각 색상 테마 (HSL을 활용해 조화롭고 밝은 느낌 연출)
 const WHEEL_COLORS = [
   'hsl(280, 75%, 60%)',  // 퍼플
   'hsl(330, 80%, 60%)',  // 핑크
@@ -23,37 +22,37 @@ const WHEEL_COLORS = [
 
 let menus = [];
 let isSpinning = false;
-let currentRotation = 0; // 라디안 기준
+let currentRotation = 0;
 let spinVelocity = 0;
-let spinDeceleration = 0.985; // 자연스러운 감속 비율
+let spinDeceleration = 0.985;
 let confettiActive = false;
 let confettiParticles = [];
-
-// Audio Context 객체 (사용자 제스처 후 지연 생성)
 let audioCtx = null;
 
-// ==========================================
-// 2. DOM 엘리먼트 참조
-// ==========================================
-const rCanvas = document.getElementById('roulette-canvas');
-const rCtx = rCanvas.getContext('2d');
-const cCanvas = document.getElementById('confetti-canvas');
-const cCtx = cCanvas.getContext('2d');
+// DOM 엘리먼트 전역 레퍼런스 (init 단계에서 안전하게 할당)
+let rCanvas, rCtx, cCanvas, cCtx;
+let spinBtnCenter, spinBtn, menuForm, menuInput, menuListContainer, menuCountBadge, resetBtn, clearBtn;
+let resultModal, resultMenuName, modalRetryBtn, modalCloseBtn;
 
-const spinBtnCenter = document.getElementById('spin-button-center');
-const spinBtn = document.getElementById('spin-button');
-const menuForm = document.getElementById('menu-form');
-const menuInput = document.getElementById('menu-input');
-const menuListContainer = document.getElementById('menu-list');
-const menuCountBadge = document.getElementById('current-count');
-const resetBtn = document.getElementById('reset-button');
-const clearBtn = document.getElementById('clear-button');
+// ==========================================
+// 2. Storage Helper (보안 예외 차단용)
+// ==========================================
+function safeLocalStorageGet(key) {
+  try {
+    return localStorage.getItem(key);
+  } catch (e) {
+    console.warn('LocalStorage access is restricted by browser security policies. Falling back to memory storage.', e);
+    return null;
+  }
+}
 
-// 모달 엘리먼트
-const resultModal = document.getElementById('result-modal');
-const resultMenuName = document.getElementById('result-menu-name');
-const modalRetryBtn = document.getElementById('modal-retry-button');
-const modalCloseBtn = document.getElementById('modal-close-button');
+function safeLocalStorageSet(key, value) {
+  try {
+    localStorage.setItem(key, value);
+  } catch (e) {
+    console.warn('Failed to write to LocalStorage due to security policies.', e);
+  }
+}
 
 // ==========================================
 // 3. Audio Synth (Web Audio API)
@@ -67,15 +66,14 @@ function initAudio() {
   }
 }
 
-// 룰렛 칸 넘어갈 때 째깍거리는 틱음 합성
 function playTickSound() {
   if (!audioCtx) return;
   try {
     const osc = audioCtx.createOscillator();
     const gainNode = audioCtx.createGain();
     
-    osc.type = 'triangle'; // 부드러운 타악기 느낌을 주는 삼각파
-    osc.frequency.setValueAtTime(600, audioCtx.currentTime); // 고음역대
+    osc.type = 'triangle';
+    osc.frequency.setValueAtTime(600, audioCtx.currentTime);
     osc.frequency.exponentialRampToValueAtTime(100, audioCtx.currentTime + 0.05);
 
     gainNode.gain.setValueAtTime(0.08, audioCtx.currentTime);
@@ -91,18 +89,14 @@ function playTickSound() {
   }
 }
 
-// 당첨 시 빰빰빰~ 하는 축하 팡파르 멜로디 합성
 function playWinSound() {
   if (!audioCtx) return;
-  
   const now = audioCtx.currentTime;
-  
-  // 도-미-솔-도 아르페지오 멜로디 구성
   const notes = [
-    { note: 523.25, time: 0 },    // C5 (도)
-    { note: 659.25, time: 0.12 },  // E5 (미)
-    { note: 783.99, time: 0.24 },  // G5 (솔)
-    { note: 1046.50, time: 0.36 }  // C6 (높은 도, 길게)
+    { note: 523.25, time: 0 },
+    { note: 659.25, time: 0.12 },
+    { note: 783.99, time: 0.24 },
+    { note: 1046.50, time: 0.36 }
   ];
   
   notes.forEach((item, index) => {
@@ -110,11 +104,10 @@ function playWinSound() {
       const osc = audioCtx.createOscillator();
       const gainNode = audioCtx.createGain();
       
-      osc.type = 'sine'; // 맑은 사인파
+      osc.type = 'sine';
       osc.frequency.setValueAtTime(item.note, now + item.time);
       
       const duration = index === notes.length - 1 ? 0.6 : 0.15;
-      
       gainNode.gain.setValueAtTime(0.12, now + item.time);
       gainNode.gain.exponentialRampToValueAtTime(0.001, now + item.time + duration);
       
@@ -133,16 +126,16 @@ function playWinSound() {
 // 4. Confetti (꽃가루) 애니메이션
 // ==========================================
 function resizeConfettiCanvas() {
-  cCanvas.width = window.innerWidth;
-  cCanvas.height = window.innerHeight;
+  if (cCanvas) {
+    cCanvas.width = window.innerWidth;
+    cCanvas.height = window.innerHeight;
+  }
 }
-window.addEventListener('resize', resizeConfettiCanvas);
-resizeConfettiCanvas();
 
 class ConfettiParticle {
   constructor() {
-    this.x = Math.random() * cCanvas.width;
-    this.y = Math.random() * -cCanvas.height - 20; // 화면 위쪽에서 시작
+    this.x = Math.random() * (cCanvas ? cCanvas.width : 500);
+    this.y = Math.random() * -(cCanvas ? cCanvas.height : 500) - 20;
     this.size = Math.random() * 8 + 6;
     this.color = WHEEL_COLORS[Math.floor(Math.random() * WHEEL_COLORS.length)];
     this.speedX = Math.random() * 4 - 2;
@@ -156,21 +149,18 @@ class ConfettiParticle {
     this.x += this.speedX;
     this.y += this.speedY;
     this.rotation += this.rotationSpeed;
-    
-    // 점차 페이드아웃 효과 (화면 하단 근처)
-    if (this.y > cCanvas.height * 0.7) {
+    if (cCanvas && this.y > cCanvas.height * 0.7) {
       this.opacity -= 0.02;
     }
   }
 
   draw() {
+    if (!cCtx) return;
     cCtx.save();
     cCtx.translate(this.x, this.y);
     cCtx.rotate((this.rotation * Math.PI) / 180);
     cCtx.globalAlpha = Math.max(0, this.opacity);
     cCtx.fillStyle = this.color;
-    
-    // 사각형 오색 종이
     cCtx.fillRect(-this.size / 2, -this.size / 2, this.size, this.size);
     cCtx.restore();
   }
@@ -186,17 +176,14 @@ function startConfetti() {
 }
 
 function animateConfetti() {
-  if (!confettiActive) return;
+  if (!confettiActive || !cCtx || !cCanvas) return;
   cCtx.clearRect(0, 0, cCanvas.width, cCanvas.height);
   
-  // 파티클 업데이트 및 렌더링
   confettiParticles.forEach((p, index) => {
     p.update();
     p.draw();
-    
-    // 화면 밖으로 완전히 사라지거나 투명도가 0이 되면 배열에서 제거
     if (p.y > cCanvas.height || p.opacity <= 0) {
-      confettiParticles[index] = new ConfettiParticle(); // 무한 흩날림 효과를 위해 재생성
+      confettiParticles[index] = new ConfettiParticle();
     }
   });
   
@@ -205,13 +192,17 @@ function animateConfetti() {
 
 function stopConfetti() {
   confettiActive = false;
-  cCtx.clearRect(0, 0, cCanvas.width, cCanvas.height);
+  if (cCtx && cCanvas) {
+    cCtx.clearRect(0, 0, cCanvas.width, cCanvas.height);
+  }
 }
 
 // ==========================================
 // 5. 룰렛 렌더링 및 물리엔진
 // ==========================================
 function drawRoulette() {
+  if (!rCanvas || !rCtx) return;
+  
   const size = rCanvas.width;
   const cx = size / 2;
   const cy = size / 2;
@@ -222,7 +213,6 @@ function drawRoulette() {
   const numSlices = menus.length;
   
   if (numSlices === 0) {
-    // 메뉴가 비어있는 상태일 때 빈 디자인 렌더링
     rCtx.save();
     rCtx.beginPath();
     rCtx.arc(cx, cy, radius, 0, 2 * Math.PI);
@@ -243,12 +233,10 @@ function drawRoulette() {
   const sliceAngle = (2 * Math.PI) / numSlices;
   
   rCtx.save();
-  // 현재의 회전각 적용
   rCtx.translate(cx, cy);
   rCtx.rotate(currentRotation);
   rCtx.translate(-cx, -cy);
   
-  // 1. 각 조각 그리기
   for (let i = 0; i < numSlices; i++) {
     const startAngle = i * sliceAngle;
     const endAngle = startAngle + sliceAngle;
@@ -257,59 +245,47 @@ function drawRoulette() {
     rCtx.moveTo(cx, cy);
     rCtx.arc(cx, cy, radius, startAngle, endAngle);
     rCtx.closePath();
-    
-    // 색상 선택 (WHEEL_COLORS에서 순환 선택)
     rCtx.fillStyle = WHEEL_COLORS[i % WHEEL_COLORS.length];
     rCtx.fill();
     
-    // 구분선 그리기 (미세한 투명 흰색선)
     rCtx.strokeStyle = 'rgba(255, 255, 255, 0.15)';
     rCtx.lineWidth = 2;
     rCtx.stroke();
   }
 
-  // 2. 각 조각 내부의 텍스트 그리기
   for (let i = 0; i < numSlices; i++) {
     const startAngle = i * sliceAngle;
-    const endAngle = startAngle + sliceAngle;
     const textAngle = startAngle + sliceAngle / 2;
     
     rCtx.save();
     rCtx.translate(cx, cy);
     rCtx.rotate(textAngle);
     
-    // 텍스트 정렬 및 스타일
     rCtx.textAlign = 'right';
     rCtx.textBaseline = 'middle';
     
-    // 메뉴 이름이 길면 폰트 사이즈 조정
     const menuText = menus[i];
     let fontSize = 16;
     if (numSlices > 12) fontSize = 12;
     else if (numSlices > 8) fontSize = 14;
     
     rCtx.font = `900 ${fontSize}px var(--font-family)`;
-    
-    // 텍스트 가독성을 위한 바깥 그림자 (Shadow) 효과
     rCtx.shadowColor = 'rgba(0, 0, 0, 0.6)';
     rCtx.shadowBlur = 4;
     rCtx.shadowOffsetX = 1;
     rCtx.shadowOffsetY = 1;
     rCtx.fillStyle = '#ffffff';
     
-    // 텍스트 위치 설정 (외곽 반지름 근처에서 중앙 안쪽으로)
     rCtx.fillText(menuText, radius - 30, 0);
     rCtx.restore();
   }
   
   rCtx.restore();
   
-  // 3. 룰렛 외부 금속 느낌의 링 테두리 그리기 (고정 원)
   rCtx.save();
   rCtx.beginPath();
   rCtx.arc(cx, cy, radius, 0, 2 * Math.PI);
   
-  // 그라데이션 광택링
   const strokeGrad = rCtx.createLinearGradient(0, 0, size, size);
   strokeGrad.addColorStop(0, 'rgba(255, 255, 255, 0.3)');
   strokeGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.05)');
@@ -321,20 +297,16 @@ function drawRoulette() {
   rCtx.restore();
 }
 
-// 물리 기반 스핀 애니메이션 루프
 let lastTickAngle = -1;
 function spinLoop() {
   if (!isSpinning) return;
   
-  // 회전각 업데이트 및 2*PI 범위로 정규화하여 정밀도 오차 방지
   currentRotation = (currentRotation + spinVelocity) % (2 * Math.PI);
-  spinVelocity *= spinDeceleration; // 마찰력에 의한 감속
+  spinVelocity *= spinDeceleration;
   
-  // 한 칸 넘어갈 때 째깍(Tick)거리는 사운드 효과 계산
   const numSlices = menus.length;
   const sliceAngle = (2 * Math.PI) / numSlices;
   
-  // 12시 바늘(1.5 * Math.PI)이 지목하는 룰렛 상의 상대 각도 계산
   let targetAngle = (1.5 * Math.PI - currentRotation) % (2 * Math.PI);
   if (targetAngle < 0) {
     targetAngle += 2 * Math.PI;
@@ -350,12 +322,9 @@ function spinLoop() {
   
   drawRoulette();
   
-  // 속도가 일정 임계값 이하가 되면 정지
   if (spinVelocity < 0.0015) {
     isSpinning = false;
     spinVelocity = 0;
-    
-    // 최종 결과 계산 (현재 바늘이 지목하는 인덱스로 확정)
     showWinner(currentTickSliceIndex);
   } else {
     requestAnimationFrame(spinLoop);
@@ -370,30 +339,27 @@ function startSpin() {
   }
   
   initAudio();
-  stopConfetti(); // 이전 꽃가루 클리어
+  stopConfetti();
   
   isSpinning = true;
-  rCanvas.classList.add('spin-active');
+  if (rCanvas) rCanvas.classList.add('spin-active');
   
-  // 시작 속도를 무작위로 주어 결과를 예측 불가하게 함 (보통 0.25 ~ 0.45 라디안/프레임)
   spinVelocity = Math.random() * 0.2 + 0.3;
-  
-  // 비활성화 제어
   setControlsEnabled(false);
-  
   spinLoop();
 }
 
 function setControlsEnabled(enabled) {
-  spinBtn.disabled = !enabled;
-  spinBtnCenter.disabled = !enabled;
-  resetBtn.disabled = !enabled;
-  clearBtn.disabled = !enabled;
+  if (spinBtn) spinBtn.disabled = !enabled;
+  if (spinBtnCenter) spinBtnCenter.disabled = !enabled;
+  if (resetBtn) resetBtn.disabled = !enabled;
+  if (clearBtn) clearBtn.disabled = !enabled;
   
-  // 추가 폼 비활성화
-  const formElements = menuForm.elements;
-  for (let i = 0; i < formElements.length; i++) {
-    formElements[i].disabled = !enabled;
+  if (menuForm) {
+    const formElements = menuForm.elements;
+    for (let i = 0; i < formElements.length; i++) {
+      formElements[i].disabled = !enabled;
+    }
   }
 }
 
@@ -401,26 +367,22 @@ function setControlsEnabled(enabled) {
 // 6. 결과 처리 및 모달 제어
 // ==========================================
 function showWinner(winningIndex) {
-  rCanvas.classList.remove('spin-active');
+  if (rCanvas) rCanvas.classList.remove('spin-active');
   
-  // 당첨 멜로디 재생
   playWinSound();
   
-  // 당첨된 메뉴 텍스트 반영
   const winnerText = menus[winningIndex];
-  resultMenuName.textContent = winnerText;
+  if (resultMenuName) resultMenuName.textContent = winnerText;
   
-  // 꽃가루 뿜뿌!
   startConfetti();
   
-  // 팝업 모달창 오픈
   setTimeout(() => {
-    resultModal.classList.remove('hidden');
+    if (resultModal) resultModal.classList.remove('hidden');
   }, 350);
 }
 
 function closeModal() {
-  resultModal.classList.add('hidden');
+  if (resultModal) resultModal.classList.add('hidden');
   stopConfetti();
   setControlsEnabled(true);
 }
@@ -429,11 +391,10 @@ function closeModal() {
 // 7. 메뉴 데이터 관리 로직
 // ==========================================
 function loadMenus() {
-  const stored = localStorage.getItem('lunch-roulette-menus');
+  const stored = safeLocalStorageGet('lunch-roulette-menus');
   if (stored) {
     try {
       menus = JSON.parse(stored);
-      // 배열이 아니거나 비어있으면 기본 메뉴로 복구
       if (!Array.isArray(menus) || menus.length === 0) {
         menus = [...DEFAULT_MENUS];
         saveMenus();
@@ -449,34 +410,35 @@ function loadMenus() {
 }
 
 function saveMenus() {
-  localStorage.setItem('lunch-roulette-menus', JSON.stringify(menus));
+  safeLocalStorageSet('lunch-roulette-menus', JSON.stringify(menus));
 }
 
 function updateUI() {
-  // 1. 카운트 갱신
-  menuCountBadge.textContent = menus.length;
+  if (menuCountBadge) {
+    menuCountBadge.textContent = menus.length;
+  }
   
-  // 2. 리스트 컨테이너 리빌딩
-  menuListContainer.innerHTML = '';
-  menus.forEach((menu, index) => {
-    const chip = document.createElement('div');
-    chip.className = 'menu-chip';
-    
-    const span = document.createElement('span');
-    span.textContent = menu;
-    
-    const removeBtn = document.createElement('button');
-    removeBtn.className = 'btn-remove-menu';
-    removeBtn.setAttribute('aria-label', `${menu} 삭제`);
-    removeBtn.innerHTML = '<i data-lucide="x"></i>';
-    removeBtn.addEventListener('click', () => removeMenu(index));
-    
-    chip.appendChild(span);
-    chip.appendChild(removeBtn);
-    menuListContainer.appendChild(chip);
-  });
+  if (menuListContainer) {
+    menuListContainer.innerHTML = '';
+    menus.forEach((menu, index) => {
+      const chip = document.createElement('div');
+      chip.className = 'menu-chip';
+      
+      const span = document.createElement('span');
+      span.textContent = menu;
+      
+      const removeBtn = document.createElement('button');
+      removeBtn.className = 'btn-remove-menu';
+      removeBtn.setAttribute('aria-label', `${menu} 삭제`);
+      removeBtn.innerHTML = '<i data-lucide="x"></i>';
+      removeBtn.addEventListener('click', () => removeMenu(index));
+      
+      chip.appendChild(span);
+      chip.appendChild(removeBtn);
+      menuListContainer.appendChild(chip);
+    });
+  }
   
-  // Lucide 아이콘 새로 그리기 (로딩 실패 대비 안전 장치 추가)
   if (typeof lucide !== 'undefined' && lucide.createIcons) {
     try {
       lucide.createIcons();
@@ -485,7 +447,6 @@ function updateUI() {
     }
   }
   
-  // 3. 룰렛 캔버스 갱신
   drawRoulette();
 }
 
@@ -530,37 +491,64 @@ function clearAllMenus() {
 // 8. 이벤트 바인딩 및 초기화
 // ==========================================
 function init() {
-  // 1. 이벤트 리스너 추가
-  spinBtn.addEventListener('click', startSpin);
-  spinBtnCenter.addEventListener('click', startSpin);
+  // DOM 요소 안전 바인딩 (HTML 로드 완료 후 매핑)
+  rCanvas = document.getElementById('roulette-canvas');
+  rCtx = rCanvas ? rCanvas.getContext('2d') : null;
+  cCanvas = document.getElementById('confetti-canvas');
+  cCtx = cCanvas ? cCanvas.getContext('2d') : null;
+
+  spinBtnCenter = document.getElementById('spin-button-center');
+  spinBtn = document.getElementById('spin-button');
+  menuForm = document.getElementById('menu-form');
+  menuInput = document.getElementById('menu-input');
+  menuListContainer = document.getElementById('menu-list');
+  menuCountBadge = document.getElementById('current-count');
+  resetBtn = document.getElementById('reset-button');
+  clearBtn = document.getElementById('clear-button');
+
+  resultModal = document.getElementById('result-modal');
+  resultMenuName = document.getElementById('result-menu-name');
+  modalRetryBtn = document.getElementById('modal-retry-button');
+  modalCloseBtn = document.getElementById('modal-close-button');
+
+  // 꽃가루 캔버스 리사이즈
+  window.addEventListener('resize', resizeConfettiCanvas);
+  resizeConfettiCanvas();
+
+  // 이벤트 리스너 안전 바인딩
+  if (spinBtn) spinBtn.addEventListener('click', startSpin);
+  if (spinBtnCenter) spinBtnCenter.addEventListener('click', startSpin);
   
-  menuForm.addEventListener('submit', (e) => {
-    e.preventDefault();
-    const val = menuInput.value;
-    addMenu(val);
-    menuInput.value = '';
-    menuInput.focus();
-  });
+  if (menuForm) {
+    menuForm.addEventListener('submit', (e) => {
+      e.preventDefault();
+      if (menuInput) {
+        const val = menuInput.value;
+        addMenu(val);
+        menuInput.value = '';
+        menuInput.focus();
+      }
+    });
+  }
   
-  resetBtn.addEventListener('click', resetToDefault);
-  clearBtn.addEventListener('click', clearAllMenus);
+  if (resetBtn) resetBtn.addEventListener('click', resetToDefault);
+  if (clearBtn) clearBtn.addEventListener('click', clearAllMenus);
   
-  modalCloseBtn.addEventListener('click', closeModal);
-  modalRetryBtn.addEventListener('click', () => {
-    closeModal();
-    // 숏컷으로 다음 룰렛 스핀 시작 (동작 유연성을 위한 시간 지연 제공)
-    setTimeout(startSpin, 400);
-  });
+  if (modalCloseBtn) modalCloseBtn.addEventListener('click', closeModal);
+  if (modalRetryBtn) {
+    modalRetryBtn.addEventListener('click', () => {
+      closeModal();
+      setTimeout(startSpin, 400);
+    });
+  }
   
-  // 스페이스바 조작 접근성 지원
   window.addEventListener('keydown', (e) => {
-    // 인풋 포커스 상태일 때는 스페이스바 스핀 작동을 제한
-    if (document.activeElement === menuInput) return;
+    if (menuInput && document.activeElement === menuInput) return;
     
     if (e.code === 'Space') {
-      e.preventDefault(); // 스크롤 바운싱 방지
+      e.preventDefault();
       if (!isSpinning) {
-        if (!resultModal.classList.contains('hidden')) {
+        if (resultModal && !resultModal.classList.contains('hidden')) {
           closeModal();
         } else {
           startSpin();
@@ -569,7 +557,7 @@ function init() {
     }
   });
 
-  // 2. 초기 룰렛 데이터 로드 및 렌더링
+  // 데이터 로드
   loadMenus();
 }
 
